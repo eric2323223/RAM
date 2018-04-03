@@ -18,10 +18,11 @@ def bias_variable(shape):
 
 
 def loglikelihood(mean_arr, sampled_arr, sigma):
-  mu = tf.pack(mean_arr)  # mu = [timesteps, batch_sz, loc_dim]
-  sampled = tf.pack(sampled_arr)  # same shape as mu
+  mu = tf.stack(mean_arr)  # mu = [timesteps, batch_sz, loc_dim]
+  sampled = tf.stack(sampled_arr)  # same shape as mu
   gaussian = distributions.Normal(mu, sigma)
-  logll = gaussian.log_pdf(sampled)  # [timesteps, batch_sz, loc_dim]
+  logll = tf.log(gaussian.prob(sampled))
+  # logll = gaussian.log_pdf(sampled)  # [timesteps, batch_sz, loc_dim]
   logll = tf.reduce_sum(logll, 2)
   logll = tf.transpose(logll)  # [batch_sz, timesteps]
   return logll
