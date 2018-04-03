@@ -12,14 +12,14 @@ from glimpse import GlimpseNet, LocNet
 from utils import weight_variable, bias_variable, loglikelihood
 from config import Config
 
-from tensorflow.examples.tutorials.mnist import input_data
+import myutils.datasets.mnist as mnistDS
 
 logging.getLogger().setLevel(logging.INFO)
 
-rnn_cell = tf.nn.rnn_cell
-seq2seq = tf.nn.seq2seq
+lstm_cell = tf.contrib.rnn.LSTMCell
+seq2seq = tf.contrib.legacy_seq2seq
 
-mnist = input_data.read_data_sets('MNIST_data', one_hot=False)
+mnist = mnistDS.read_data_sets( one_hot=False)
 
 config = Config()
 n_steps = config.step
@@ -52,7 +52,7 @@ N = tf.shape(images_ph)[0]
 init_loc = tf.random_uniform((N, 2), minval=-1, maxval=1)
 init_glimpse = gl(init_loc)
 # Core network.
-lstm_cell = rnn_cell.LSTMCell(config.cell_size, state_is_tuple=True)
+lstm_cell = lstm_cell(config.cell_size, state_is_tuple=True)
 init_state = lstm_cell.zero_state(N, tf.float32)
 inputs = [init_glimpse]
 inputs.extend([0] * (config.num_glimpses))
@@ -68,7 +68,7 @@ for t, output in enumerate(outputs[1:]):
   baseline_t = tf.nn.xw_plus_b(output, w_baseline, b_baseline)
   baseline_t = tf.squeeze(baseline_t)
   baselines.append(baseline_t)
-baselines = tf.pack(baselines)  # [timesteps, batch_sz]
+baselines = tf.stack(baselines)  # [timesteps, batch_sz]
 baselines = tf.transpose(baselines)  # [batch_sz, timesteps]
 
 # Take the last step only.
@@ -81,7 +81,7 @@ logits = tf.nn.xw_plus_b(output, w_logit, b_logit)
 softmax = tf.nn.softmax(logits)
 
 # cross-entropy.
-xent = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, labels_ph)
+xent = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=labels_ph)
 xent = tf.reduce_mean(xent)
 pred_labels = tf.argmax(logits, 1)
 # 0/1 reward.
@@ -103,7 +103,7 @@ grads, _ = tf.clip_by_global_norm(grads, config.max_grad_norm)
 # learning rate
 global_step = tf.get_variable(
     'global_step', [], initializer=tf.constant_initializer(0), trainable=False)
-training_steps_per_epoch = mnist.train.num_examples // config.batch_size
+training_steps_per_epoch = mnist['train'].num_examples // config.batch_size
 starter_learning_rate = config.lr_start
 # decay per training epoch
 learning_rate = tf.train.exponential_decay(
@@ -118,8 +118,8 @@ train_op = opt.apply_gradients(zip(grads, var_list), global_step=global_step)
 
 with tf.Session() as sess:
   sess.run(tf.initialize_all_variables())
-  for i in xrange(n_steps):
-    images, labels = mnist.train.next_batch(config.batch_size)
+  for i in range(n_steps):
+    images, labels = mnist['train'].next_batch(config.batch_size)
     # duplicate M times, see Eqn (2)
     images = np.tile(images, [config.M, 1])
     labels = np.tile(labels, [config.M])
@@ -142,12 +142,12 @@ with tf.Session() as sess:
 
     if i and i % training_steps_per_epoch == 0:
       # Evaluation
-      for dataset in [mnist.validation, mnist.test]:
+      for dataset in [mnist['validation'], mnist['test']]:
         steps_per_epoch = dataset.num_examples // config.eval_batch_size
         correct_cnt = 0
         num_samples = steps_per_epoch * config.batch_size
         loc_net.sampling = True
-        for test_step in xrange(steps_per_epoch):
+        for test_step in range(steps_per_epoch):
           images, labels = dataset.next_batch(config.batch_size)
           labels_bak = labels
           # Duplicate M times
@@ -165,7 +165,8 @@ with tf.Session() as sess:
           pred_labels_val = pred_labels_val.flatten()
           correct_cnt += np.sum(pred_labels_val == labels_bak)
         acc = correct_cnt / num_samples
-        if dataset == mnist.validation:
+        if dataset == mnist['validation']:
           logging.info('valid accuracy = {}'.format(acc))
         else:
           logging.info('test accuracy = {}'.format(acc))
+
